@@ -3,6 +3,7 @@ Grok Imagine WebSocket image service.
 """
 
 import asyncio
+import certifi
 import json
 import re
 import ssl
@@ -30,6 +31,7 @@ class ImageService:
 
     def __init__(self):
         self._ssl_context = ssl.create_default_context()
+        self._ssl_context.load_verify_locations(certifi.where())
         self._url_pattern = re.compile(r"/images/([a-f0-9-]+)\.(png|jpg|jpeg)")
 
     def _resolve_proxy(self) -> tuple[aiohttp.BaseConnector, Optional[str]]:

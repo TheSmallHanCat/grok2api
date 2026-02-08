@@ -155,10 +155,13 @@ class BaseService:
         """构建请求头"""
         if download:
             headers = {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-site",
+                "Sec-Fetch-User": "?1",
                 "Referer": referer,
+                "User-Agent": self.config.user_agent,
             }
         else:
             headers = {
