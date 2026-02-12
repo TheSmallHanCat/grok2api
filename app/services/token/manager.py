@@ -185,12 +185,13 @@ class TokenManager:
             if self._dirty:
                 self._schedule_save()
 
-    def get_token(self, pool_name: str = "ssoBasic") -> Optional[str]:
+    def get_token(self, pool_name: str = "ssoBasic", exclude: set = None) -> Optional[str]:
         """
         获取可用 Token
 
         Args:
             pool_name: Token 池名称
+            exclude: 需要排除的 token 字符串集合
 
         Returns:
             Token 字符串或 None
@@ -200,7 +201,7 @@ class TokenManager:
             logger.warning(f"Pool '{pool_name}' not found")
             return None
 
-        token_info = pool.select()
+        token_info = pool.select(exclude=exclude)
         if not token_info:
             logger.warning(f"No available token in pool '{pool_name}'")
             return None
@@ -435,6 +436,37 @@ class TokenManager:
         logger.warning(f"Token {raw_token[:10]}...: not found for failure record")
         return False
 
+    async def mark_rate_limited(self, token_str: str) -> bool:
+        """
+        将 Token 标记为配额耗尽（COOLING）
+
+        当 Grok API 返回 429 时调用，将 quota 设为 0 并标记 COOLING，
+        使该 Token 不再被选中，等待下次 Scheduler 刷新恢复。
+
+        Args:
+            token_str: Token 字符串
+
+        Returns:
+            是否成功
+        """
+        raw_token = token_str.removeprefix("sso=")
+
+        for pool in self.pools.values():
+            token = pool.get(raw_token)
+            if token:
+                old_quota = token.quota
+                token.quota = 0
+                token.status = TokenStatus.COOLING
+                logger.warning(
+                    f"Token {raw_token[:10]}...: marked as rate limited "
+                    f"(quota {old_quota} -> 0, status -> cooling)"
+                )
+                self._schedule_save()
+                return True
+
+        logger.warning(f"Token {raw_token[:10]}...: not found for rate limit marking")
+        return False
+
     # ========== 管理功能 ==========
 
     async def add(self, token: str, pool_name: str = "ssoBasic") -> bool:
@@ -646,7 +678,7 @@ class TokenManager:
                 # 重试逻辑：最多 2 次重试
                 for retry in range(3):  # 0, 1, 2
                     try:
-                        result = await usage_service.get(token_str)
+                        result = await usage_service.get(token_str, model_name="grok-3")
 
                         if result and "remainingTokens" in result:
                             new_quota = result["remainingTokens"]
@@ -666,7 +698,6 @@ class TokenManager:
                                 "expired": False,
                             }
 
-                        token_info.mark_synced()
                         return {"recovered": False, "expired": False}
 
                     except Exception as e:
@@ -688,16 +719,13 @@ class TokenManager:
                                     f"marking as expired"
                                 )
                                 token_info.status = TokenStatus.EXPIRED
-                                token_info.mark_synced()
                                 return {"recovered": False, "expired": True}
                         else:
                             logger.warning(
                                 f"Token {token_info.token[:10]}...: refresh failed ({e})"
                             )
-                            token_info.mark_synced()
                             return {"recovered": False, "expired": False}
 
-                token_info.mark_synced()
                 return {"recovered": False, "expired": False}
 
         # 批量处理
