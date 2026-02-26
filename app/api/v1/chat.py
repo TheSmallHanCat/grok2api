@@ -747,6 +747,17 @@ async def chat_completions(request: ChatCompletionRequest):
         # 提取视频配置 (默认值在 Pydantic 模型中处理)
         v_conf = request.video_config or VideoConfig()
 
+        # 从模型名称解析视频参数（支持不同长度的模型）
+        parsed_ratio, parsed_length, parsed_resolution = ModelService.parse_video_params(request.model)
+
+        # 使用解析出的参数覆盖默认值（如果用户没有显式指定）
+        if not request.video_config or request.video_config.aspect_ratio == VideoConfig().aspect_ratio:
+            v_conf.aspect_ratio = parsed_ratio
+        if not request.video_config or request.video_config.video_length == VideoConfig().video_length:
+            v_conf.video_length = parsed_length
+        if not request.video_config or request.video_config.resolution_name == VideoConfig().resolution_name:
+            v_conf.resolution_name = parsed_resolution
+
         result = await VideoService.completions(
             model=request.model,
             messages=[msg.model_dump() for msg in request.messages],
